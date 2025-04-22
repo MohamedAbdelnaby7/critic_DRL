@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-"""
-DDPG implementation for LunarLanderContinuous-v2.
-Usage: python ddpg_lunarlander.py
-"""
-
 import gymnasium as gym
 import numpy as np
 import torch
@@ -20,26 +14,35 @@ import time
 # ---------------------
 ACTOR_LR = 1e-4
 CRITIC_LR = 1e-3
-GAMMA = 0.99
+GAMMA = 0.95
 TAU = 0.005  # Soft update
-MEMORY_CAPACITY = 100000
-BATCH_SIZE = 128
+MEMORY_CAPACITY = 50000
+BATCH_SIZE = 64
 NOISE_SCALE_INIT = 0.1
 NOISE_SCALE_END = 0.01
 MAX_EPISODES = 1000
 MAX_STEPS = 1000
 RENDER = False
 
+# ---------------------
+# CUDA Device Setup
+# ---------------------
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
+
 # ----- Actor Network -----
 class Actor(nn.Module):
     def __init__(self, state_dim, action_dim, max_action):
         super(Actor, self).__init__()
         self.net = nn.Sequential(
-            nn.Linear(state_dim, 256),
+            nn.Linear(state_dim, 512),  # Increased number of neurons
             nn.ReLU(),
-            nn.Linear(256, 256),
+            nn.LayerNorm(512),  # Use Layer Normalization instead of BatchNorm
+            nn.Linear(512, 512),  # Increased layer width
             nn.ReLU(),
-            nn.Linear(256, action_dim)
+            nn.LayerNorm(512),  # Use Layer Normalization instead of BatchNorm
+            nn.Linear(512, action_dim),
+            nn.Tanh()  # Output bounded between [-1, 1] for continuous action
         )
         self.max_action = max_action
 
@@ -53,11 +56,13 @@ class Critic(nn.Module):
     def __init__(self, state_dim, action_dim):
         super(Critic, self).__init__()
         self.net = nn.Sequential(
-            nn.Linear(state_dim + action_dim, 256),
+            nn.Linear(state_dim + action_dim, 512),  # Increased number of neurons
             nn.ReLU(),
-            nn.Linear(256, 256),
+            nn.BatchNorm1d(512),  # Batch normalization
+            nn.Linear(512, 512),  # Increased layer width
             nn.ReLU(),
-            nn.Linear(256, 1)
+            nn.BatchNorm1d(512),
+            nn.Linear(512, 1)
         )
 
     def forward(self, state, action):
@@ -92,12 +97,12 @@ class DDPGAgent:
         self.action_dim = action_dim
         self.max_action = max_action
 
-        self.actor = Actor(state_dim, action_dim, max_action)
-        self.actor_target = Actor(state_dim, action_dim, max_action)
+        self.actor = Actor(state_dim, action_dim, max_action).to(device)
+        self.actor_target = Actor(state_dim, action_dim, max_action).to(device)
         self.actor_target.load_state_dict(self.actor.state_dict())
 
-        self.critic = Critic(state_dim, action_dim)
-        self.critic_target = Critic(state_dim, action_dim)
+        self.critic = Critic(state_dim, action_dim).to(device)
+        self.critic_target = Critic(state_dim, action_dim).to(device)
         self.critic_target.load_state_dict(self.critic.state_dict())
 
         self.actor_opt = optim.Adam(self.actor.parameters(), lr=ACTOR_LR)
@@ -108,7 +113,7 @@ class DDPGAgent:
 
     def select_action(self, state, noise_scale):
         with torch.no_grad():
-            state_v = torch.FloatTensor(state).unsqueeze(0)
+            state_v = torch.FloatTensor(state).unsqueeze(0).to(device)
             action = self.actor(state_v).cpu().numpy().flatten()
         # Add gaussian noise for exploration
         noise = np.random.normal(0, noise_scale, size=self.action_dim)
@@ -123,11 +128,11 @@ class DDPGAgent:
             return
 
         states, actions, rewards, next_states, dones = self.buffer.sample(BATCH_SIZE)
-        states_v = torch.FloatTensor(states)
-        actions_v = torch.FloatTensor(actions)
-        rewards_v = torch.FloatTensor(rewards).unsqueeze(-1)
-        next_states_v = torch.FloatTensor(next_states)
-        dones_v = torch.FloatTensor(dones).unsqueeze(-1)
+        states_v = torch.FloatTensor(states).to(device)
+        actions_v = torch.FloatTensor(actions).to(device)
+        rewards_v = torch.FloatTensor(rewards).unsqueeze(-1).to(device)
+        next_states_v = torch.FloatTensor(next_states).to(device)
+        dones_v = torch.FloatTensor(dones).unsqueeze(-1).to(device)
 
         # Critic update
         with torch.no_grad():
@@ -164,7 +169,7 @@ class DDPGAgent:
             writer.add_scalar("loss/actor", actor_loss.item(), step)
 
 def main():
-    env = gym.make("LunarLanderContinuous-v2", render_mode="human" if RENDER else None)
+    env = gym.make("LunarLanderContinuous-v3", render_mode="human" if RENDER else None)
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
     max_action = float(env.action_space.high[0])  # for LunarLanderContinuous is 1.0
@@ -210,4 +215,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -130,7 +130,7 @@ class DQNAgent:
 # -------------- MAIN TRAINING LOOP --------------
 
 def main():
-    env = gym.make("LunarLander-v2", render_mode="human" if RENDER else None)
+    env = gym.make("LunarLander-v3", render_mode="human" if RENDER else None)
     # if needed: env = gym.wrappers.RecordEpisodeStatistics(env)
 
     obs_dim = env.observation_space.shape[0]
