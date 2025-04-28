@@ -14,14 +14,14 @@ import time
 # ---------------------
 ACTOR_LR = 1e-4
 CRITIC_LR = 1e-3
-GAMMA = 0.95
-TAU = 0.005  # Soft update
+GAMMA = 0.99
+TAU = 0.001  # Soft update
 MEMORY_CAPACITY = 50000
-BATCH_SIZE = 64
+BATCH_SIZE = 256
 NOISE_SCALE_INIT = 0.1
 NOISE_SCALE_END = 0.01
-MAX_EPISODES = 1000
-MAX_STEPS = 1000
+MAX_EPISODES = 6000
+MAX_STEPS = 1000 
 RENDER = False
 
 # ---------------------
@@ -42,7 +42,6 @@ class Actor(nn.Module):
             nn.ReLU(),
             nn.LayerNorm(512),  # Use Layer Normalization instead of BatchNorm
             nn.Linear(512, action_dim),
-            nn.Tanh()  # Output bounded between [-1, 1] for continuous action
         )
         self.max_action = max_action
 
@@ -58,10 +57,10 @@ class Critic(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(state_dim + action_dim, 512),  # Increased number of neurons
             nn.ReLU(),
-            nn.BatchNorm1d(512),  # Batch normalization
+            nn.LayerNorm (512),  # Batch normalization
             nn.Linear(512, 512),  # Increased layer width
             nn.ReLU(),
-            nn.BatchNorm1d(512),
+            nn.LayerNorm (512),
             nn.Linear(512, 1)
         )
 
@@ -145,7 +144,7 @@ class DDPGAgent:
 
         self.critic_opt.zero_grad()
         critic_loss.backward()
-        nn.utils.clip_grad_norm_(self.critic.parameters(), 5.0)
+        nn.utils.clip_grad_norm_(self.critic.parameters(), 1.0)
         self.critic_opt.step()
 
         # Actor update
@@ -154,7 +153,7 @@ class DDPGAgent:
 
         self.actor_opt.zero_grad()
         actor_loss.backward()
-        nn.utils.clip_grad_norm_(self.actor.parameters(), 5.0)
+        nn.utils.clip_grad_norm_(self.actor.parameters(), 1.0)
         self.actor_opt.step()
 
         # soft update
@@ -167,6 +166,21 @@ class DDPGAgent:
             step = self.global_step
             writer.add_scalar("loss/critic", critic_loss.item(), step)
             writer.add_scalar("loss/actor", actor_loss.item(), step)
+
+class ZFilter:
+    """Running mean-std normaliser (Welford algorithm)."""
+    def __init__(self, clip=5.0, eps=1e-8):
+        self.n, self.mean, self.var = 0, 0.0, 1.0
+        self.clip, self.eps = clip, eps
+
+    def __call__(self, x):
+        self.n += 1
+        last_mean = self.mean
+        self.mean += (x - self.mean) / self.n
+        self.var += (x - last_mean) * (x - self.mean)
+        std = np.sqrt(self.var / max(self.n - 1, 1))
+        x_norm = (x - self.mean) / (std + self.eps)
+        return np.clip(x_norm, -self.clip, self.clip)
 
 def main():
     env = gym.make("LunarLanderContinuous-v3", render_mode="human" if RENDER else None)
@@ -184,6 +198,8 @@ def main():
     noise_decay = (NOISE_SCALE_INIT - NOISE_SCALE_END) / noise_decay_steps
 
     global_step = 0
+    reward_filter = ZFilter() 
+    
     for episode in range(MAX_EPISODES):
         state, _ = env.reset()
         episode_reward = 0
@@ -194,8 +210,10 @@ def main():
             next_state, reward, done, truncated, info = env.step(action)
             done_bool = done or truncated
 
-            agent.store_transition(state, action, reward, next_state, done_bool)
+            norm_reward = reward_filter(reward)
+            agent.store_transition(state, action, norm_reward, next_state, done_bool)
             agent.update(writer)
+
 
             episode_reward += reward
             state = next_state

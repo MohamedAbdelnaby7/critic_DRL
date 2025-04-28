@@ -1,4 +1,9 @@
-torch>=2.0
-gymnasium[box2d]~=0.29.1
-numpy>=1.26
-tensorboard>=2.15
+python==3.10
+torch
+torchvision
+torchaudio
+gymnasium
+box2d
+numpy
+tensorboard
+matplotlib

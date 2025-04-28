@@ -18,16 +18,16 @@ import time
 # Hyperparameters TUNING
 # Adjust as needed
 # ---------------------
-BATCH_SIZE = 64
-LR = 1e-3
+BATCH_SIZE = 128
+LR = 1e-2
 GAMMA = 0.99
 EPS_START = 1.0
 EPS_END = 0.01
 EPS_DECAY = 50000  # Steps over which eps decays
 TARGET_UPDATE_FREQ = 1000
-MEMORY_CAPACITY = 100000
-MAX_EPISODES = 1000
-MAX_STEPS = 500
+MEMORY_CAPACITY = 10000
+MAX_EPISODES = 5000
+MAX_STEPS = 150
 RENDER = False
 
 # ----- Neural Network for Q-value Approximation -----
@@ -35,11 +35,13 @@ class QNetwork(nn.Module):
     def __init__(self, state_dim, action_dim):
         super(QNetwork, self).__init__()
         self.net = nn.Sequential(
-            nn.Linear(state_dim, 128),
+            nn.Linear(state_dim, 512),
             nn.ReLU(),
-            nn.Linear(128, 128),
+            nn.LayerNorm(512),  # Use Layer Normalization instead of BatchNorm
+            nn.Linear(512, 512),
             nn.ReLU(),
-            nn.Linear(128, action_dim)
+            nn.LayerNorm(512),  # Use Layer Normalization instead of BatchNorm
+            nn.Linear(512, action_dim)
         )
     def forward(self, x):
         return self.net(x)
